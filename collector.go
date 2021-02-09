@@ -14,9 +14,11 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/binary"
 	"fmt"
+	"io/ioutil"
 	"net"
 	"strconv"
 	"strings"
@@ -26,6 +28,8 @@ import (
 	"github.com/go-kit/kit/log/level"
 	"github.com/gosnmp/gosnmp"
 	"github.com/prometheus/client_golang/prometheus"
+	"golang.org/x/text/encoding/ianaindex"
+	"golang.org/x/text/transform"
 	"gopkg.in/alecthomas/kingpin.v2"
 
 	"github.com/prometheus/snmp_exporter/config"
@@ -654,7 +658,7 @@ func indexOidsAsString(indexOids []int, typ string, fixedSize int, implied bool,
 			parts[i] = byte(o)
 		}
 		// ASCII, so can convert staight to utf-8.
-		return string(parts), subOid, indexOids
+		return ensureUTF8(parts), subOid, indexOids
 	case "InetAddressIPv4":
 		subOid, indexOids := splitOid(indexOids, 4)
 		parts := make([]string, 4)
@@ -681,6 +685,20 @@ func indexOidsAsString(indexOids []int, typ string, fixedSize int, implied bool,
 		panic(fmt.Sprintf("Unknown index type %s", typ))
 		return "", nil, nil
 	}
+}
+
+func ensureUTF8(str []byte) string {
+	charset := "windows-1252"
+	e, err := ianaindex.MIME.Encoding(charset)
+	if err != nil {
+		return string(str)
+	}
+	r := transform.NewReader(bytes.NewBuffer(str), e.NewDecoder())
+	result, err := ioutil.ReadAll(r)
+	if err != nil {
+		return string(str)
+	}
+	return string(result)
 }
 
 func indexesToLabels(indexOids []int, metric *config.Metric, oidToPdu map[string]gosnmp.SnmpPDU) map[string]string {
